@@ -60,9 +60,8 @@ async def upload(update: Update, context: CallbackContext):
             if not rarity:
                 await update.message.reply_text("Invalid rarity number. Use 1–7.")
                 return
-            urllib.request.urlopen(img_url)  # validate image
-        except:
-            await update.message.reply_text("Invalid image URL or URL not accessible.")
+        except Exception as e:
+            await update.message.reply_text("❌ Invalid arguments.")
             return
 
     else:
@@ -81,7 +80,7 @@ async def upload(update: Update, context: CallbackContext):
 
     try:
         sent = await context.bot.send_photo(
-            CHARA_CHANNEL_ID,
+            chat_id=CHARA_CHANNEL_ID,
             photo=img_url,
             caption=f"<b>Waifu Name:</b> {name}\n<b>Anime:</b> {anime}\n<b>Rarity:</b> {rarity}\n<b>ID:</b> {char_id}\nAdded by <a href='tg://user?id={update.effective_user.id}'>{update.effective_user.first_name}</a>",
             parse_mode="HTML"
@@ -90,8 +89,7 @@ async def upload(update: Update, context: CallbackContext):
         await collection.insert_one(waifu)
         await update.message.reply_text("✅ Waifu added successfully.")
     except Exception as e:
-        await update.message.reply_text(f"Failed to upload: {e}")
-
+        await update.message.reply_text(f"❌ Error uploading waifu:\n<code>{e}</code>", parse_mode="HTML")
 
 async def delete(update: Update, context: CallbackContext):
     if str(update.effective_user.id) not in sudo_users:
@@ -113,7 +111,6 @@ async def delete(update: Update, context: CallbackContext):
         await update.message.reply_text("✅ Deleted successfully.")
     else:
         await update.message.reply_text("ID not found in database.")
-
 
 async def update_waifu(update: Update, context: CallbackContext):
     if str(update.effective_user.id) not in sudo_users:
@@ -166,7 +163,7 @@ async def update_waifu(update: Update, context: CallbackContext):
             )
         await update.message.reply_text("✅ Updated successfully.")
     except Exception as e:
-        await update.message.reply_text(f"Update failed: {e}")
+        await update.message.reply_text(f"❌ Failed to update caption:\n<code>{e}</code>", parse_mode="HTML")
 
 # Add handlers
 application.add_handler(CommandHandler("upload", upload, block=False))
