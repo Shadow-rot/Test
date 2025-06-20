@@ -7,6 +7,11 @@ from html import escape
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CommandHandler, CallbackContext, MessageHandler, filters
+from Grabber.modules.spawn_core import (
+    message_counter,
+    set_frequency,
+    force_spawn
+)
 
 from Grabber import (
     application,
