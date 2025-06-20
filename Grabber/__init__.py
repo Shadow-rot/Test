@@ -16,11 +16,11 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger("pyrate_limiter").setLevel(logging.ERROR)
 LOGGER = logging.getLogger(__name__)
 
-OWNER_ID = "5116239739"
-sudo_users = ["5116239739", "6590287973"]
-GROUP_ID = "-1002010986967"
-TOKEN = "6770670571:AAFiM9-vMtWJMic2L4OUZEZs39l_hOvZO_o"
-mongo_url = "mongodb+srv://tiwarireeta004:peqxLEd36RAg7ors@cluster0.furypd3.mongodb.net/?retryWrites=true&w=majority"
+OWNER_ID = "5147822244"
+sudo_users = ["6507226414", "7202110938"]
+GROUP_ID = "-1002059929123"
+TOKEN = "7891572866:AAE56J7Hl0WE6TEbvNhB6Zv3GUzXTh5gXek"
+mongo_url = "mongodb+srv://Sha:u8KqYML48zhyeWB@cluster0.ebq5nwm.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 PHOTO_URL = ["https://telegra.ph/file/a17bbdf36197b0f0eb2c1.jpg", "https://telegra.ph/file/4754711cd88be32baf5b4.jpg", "https://telegra.ph/file/46b1151c6088fabc62250.jpg", "https://telegra.ph/file/4ed692d4e678216f87083.jpg"]
 SUPPORT_CHAT = "welovewesimp"
 UPDATE_CHAT = "Anime Girl trade and Gift"
