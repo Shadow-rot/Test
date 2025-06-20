@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: ANNIE-X-MUSIC
+    name: GRABBING 
     env: python
     plan: free
     buildCommand: pip3 install --no-cache-dir --upgrade --requirement requirements.txt
