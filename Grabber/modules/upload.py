@@ -1,8 +1,15 @@
-import urllib.request
+import aiohttp
+from io import BytesIO
 from pymongo import ReturnDocument
-from telegram import Update
+from telegram import Update, InputFile
 from telegram.ext import CommandHandler, CallbackContext
 from Grabber import application, sudo_users, collection, db, CHARA_CHANNEL_ID
+
+rarity_map = {
+    1: "🟢 𝘾𝙤𝙢𝙢𝙤𝙣", 2: "🔵 𝙈𝙚𝙙𝙞𝙪𝙢", 3: "🟡 𝙍𝙖𝙧𝙚",
+    4: "🔴 𝙇𝙚𝙜𝙚𝙣𝙙𝙖𝙧𝙮", 5: "💠 𝙎𝙥𝙚𝙘𝙞𝙖𝙡",
+    6: "🔮 𝙇𝙞𝙢𝙞𝙩𝙚𝙙", 7: "❄️𝙒𝙞𝙣𝙩𝙚𝙧"
+}
 
 async def get_next_sequence_number(sequence_name):
     sequence_collection = db.sequences
@@ -15,12 +22,6 @@ async def get_next_sequence_number(sequence_name):
         await sequence_collection.insert_one({"_id": sequence_name, "sequence_value": 0})
         return 0
     return sequence_document["sequence_value"]
-
-rarity_map = {
-    1: "🟢 𝘾𝙤𝙢𝙢𝙤𝙣", 2: "🔵 𝙈𝙚𝙙𝙞𝙪𝙢", 3: "🟡 𝙍𝙖𝙧𝙚",
-    4: "🔴 𝙇𝙚𝙜𝙚𝙣𝙙𝙖𝙧𝙮", 5: "💠 𝙎𝙥𝙚𝙘𝙞𝙖𝙡",
-    6: "🔮 𝙇𝙞𝙢𝙞𝙩𝙚𝙙", 7: "❄️𝙒𝙞𝙣𝙩𝙚𝙧"
-}
 
 async def upload(update: Update, context: CallbackContext):
     if str(update.effective_user.id) not in sudo_users:
@@ -46,7 +47,6 @@ async def upload(update: Update, context: CallbackContext):
 
             file = await context.bot.get_file(media.file_id)
             img_url = f"https://api.telegram.org/file/bot{context.bot.token}/{file.file_path}"
-
         except Exception as e:
             await update.message.reply_text(f"Error parsing image: {e}")
             return
@@ -63,7 +63,6 @@ async def upload(update: Update, context: CallbackContext):
         except Exception as e:
             await update.message.reply_text("❌ Invalid arguments.")
             return
-
     else:
         await update.message.reply_text("❌ Wrong format.\n\nUse:\n/reply to image with:\n  /upload name anime rarity\n\nOr directly:\n  /upload url name anime rarity")
         return
@@ -78,6 +77,7 @@ async def upload(update: Update, context: CallbackContext):
         "id": char_id,
     }
 
+    # Try sending directly first
     try:
         sent = await context.bot.send_photo(
             chat_id=CHARA_CHANNEL_ID,
@@ -85,11 +85,30 @@ async def upload(update: Update, context: CallbackContext):
             caption=f"<b>Waifu Name:</b> {name}\n<b>Anime:</b> {anime}\n<b>Rarity:</b> {rarity}\n<b>ID:</b> {char_id}\nAdded by <a href='tg://user?id={update.effective_user.id}'>{update.effective_user.first_name}</a>",
             parse_mode="HTML"
         )
-        waifu["message_id"] = sent.message_id
-        await collection.insert_one(waifu)
-        await update.message.reply_text("✅ Waifu added successfully.")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error uploading waifu:\n<code>{e}</code>", parse_mode="HTML")
+    except Exception:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(img_url) as response:
+                    if response.status != 200:
+                        raise Exception("Failed to fetch image.")
+
+                    image_bytes = await response.read()
+                    buffer = BytesIO(image_bytes)
+                    buffer.name = "waifu.jpg"
+
+                    sent = await context.bot.send_photo(
+                        chat_id=CHARA_CHANNEL_ID,
+                        photo=InputFile(buffer),
+                        caption=f"<b>Waifu Name:</b> {name}\n<b>Anime:</b> {anime}\n<b>Rarity:</b> {rarity}\n<b>ID:</b> {char_id}\nAdded by <a href='tg://user?id={update.effective_user.id}'>{update.effective_user.first_name}</a>",
+                        parse_mode="HTML"
+                    )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to upload waifu:\n<code>{e}</code>", parse_mode="HTML")
+            return
+
+    waifu["message_id"] = sent.message_id
+    await collection.insert_one(waifu)
+    await update.message.reply_text("✅ Waifu added successfully.")
 
 async def delete(update: Update, context: CallbackContext):
     if str(update.effective_user.id) not in sudo_users:
