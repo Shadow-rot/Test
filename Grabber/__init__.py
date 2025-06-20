@@ -22,12 +22,12 @@ GROUP_ID = "-1002059929123"
 TOKEN = "7891572866:AAE56J7Hl0WE6TEbvNhB6Zv3GUzXTh5gXek"
 mongo_url = "mongodb+srv://Sha:u8KqYML48zhyeWB@cluster0.ebq5nwm.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 PHOTO_URL = ["https://telegra.ph/file/a17bbdf36197b0f0eb2c1.jpg", "https://telegra.ph/file/4754711cd88be32baf5b4.jpg", "https://telegra.ph/file/46b1151c6088fabc62250.jpg", "https://telegra.ph/file/4ed692d4e678216f87083.jpg"]
-SUPPORT_CHAT = "welovewesimp"
-UPDATE_CHAT = "Anime Girl trade and Gift"
-BOT_USERNAME = "Seducer_charm_bot"
-CHARA_CHANNEL_ID = "-1002010986967"
-api_id = "20457610"
-api_hash = "b7de0dfecd19375d3f84dbedaeb92537"
+SUPPORT_CHAT = "agroupforfriend"
+UPDATE_CHAT = "saiboksXsupport"
+BOT_USERNAME = "waifukunbot"
+CHARA_CHANNEL_ID = "-1002059929123"
+api_id = "23664800"
+api_hash = "1effa1d4d80a7b994dca61b1159834c9"
 
 application = Application.builder().token(TOKEN).build()
 Grabberu = Client("Grabber", api_id, api_hash, bot_token=TOKEN)
