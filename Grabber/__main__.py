@@ -35,9 +35,12 @@ def escape_markdown(text):
     return re.sub(r'([%s])' % re.escape(escape_chars), r'\\\1', text)
 
 
-async def message_counter(update: Update, context: CallbackContext) -> None:
-    chat_id = str(update.effective_chat.id)
-    user_id = update.effective_user.id
+async def message_counter(update, context):
+    user = update.effective_user
+    if user is None:
+        return  # Skip system or anonymous messages
+    user_id = user.id
+    # ... rest of your logic
 
     if chat_id not in locks:
         locks[chat_id] = asyncio.Lock()
