@@ -64,7 +64,7 @@ RUN apt update && apt upgrade -y && \
 RUN pip3 install --upgrade pip setuptools
 
 # Copy Python Requirements to /root/FallenRobot
-RUN git clone https://github.com/Shadow-rot/Test/tree/main
+RUN git clone https://github.com/Shadow-rot/Test
 WORKDIR /root/ptb
 
 
