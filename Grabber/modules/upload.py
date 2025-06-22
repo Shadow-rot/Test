@@ -5,6 +5,7 @@ from telegram import Update, InputFile
 from telegram.ext import CommandHandler, CallbackContext
 from Grabber import application, sudo_users, collection, db, CHARA_CHANNEL_ID
 
+# Mapping of rarity levels
 rarity_map = {
     1: "🟢 𝘾𝙤𝙢𝙢𝙤𝙣", 2: "🔵 𝙈𝙚𝙙𝙞𝙪𝙢", 3: "🟡 𝙍𝙖𝙧𝙚",
     4: "🔴 𝙇𝙚𝙜𝙚𝙣𝙙𝙖𝙧𝙮", 5: "💠 𝙎𝙥𝙚𝙘𝙞𝙖𝙡",
@@ -31,6 +32,7 @@ async def upload(update: Update, context: CallbackContext):
     args = context.args
     reply = update.message.reply_to_message
 
+    # Reply mode
     if reply and len(args) == 3:
         try:
             name = args[0].replace("-", " ").title()
@@ -40,17 +42,33 @@ async def upload(update: Update, context: CallbackContext):
                 await update.message.reply_text("Invalid rarity number. Use 1–7.")
                 return
 
-            media = reply.photo[-1] if reply.photo else reply.document
+            media = None
+
+            if reply.photo:
+                media = reply.photo[-1]
+            elif reply.document and reply.document.mime_type and reply.document.mime_type.startswith("image/"):
+                media = reply.document
+            elif reply.sticker and not reply.sticker.is_animated and not reply.sticker.is_video:
+                media = reply.sticker
+            elif reply.animation:
+                media = reply.animation
+            elif reply.video:
+                media = reply.video
+
             if not media:
-                await update.message.reply_text("Reply must be a photo or image file.")
+                await update.message.reply_text(
+                    "❌ Please reply to one of the supported media types:\n"
+                    "- Photo\n- Image Document\n- Static Sticker\n- Animation (GIF)\n- Video"
+                )
                 return
 
             file = await context.bot.get_file(media.file_id)
             img_url = f"https://api.telegram.org/file/bot{context.bot.token}/{file.file_path}"
         except Exception as e:
-            await update.message.reply_text(f"Error parsing image: {e}")
+            await update.message.reply_text(f"❌ Error parsing media: {e}")
             return
 
+    # Direct mode
     elif not reply and len(args) == 4:
         try:
             img_url = args[0]
@@ -60,11 +78,18 @@ async def upload(update: Update, context: CallbackContext):
             if not rarity:
                 await update.message.reply_text("Invalid rarity number. Use 1–7.")
                 return
-        except Exception as e:
+        except:
             await update.message.reply_text("❌ Invalid arguments.")
             return
     else:
-        await update.message.reply_text("❌ Wrong format.\n\nUse:\n/reply to image with:\n  /upload name anime rarity\n\nOr directly:\n  /upload url name anime rarity")
+        await update.message.reply_text(
+            "❌ Wrong format.\n\nUse:\n"
+            "<b>Reply to image with:</b>\n"
+            "/upload name anime rarity\n\n"
+            "<b>Or directly:</b>\n"
+            "/upload url name anime rarity",
+            parse_mode="HTML"
+        )
         return
 
     char_id = str(await get_next_sequence_number("character_id")).zfill(2)
@@ -77,7 +102,6 @@ async def upload(update: Update, context: CallbackContext):
         "id": char_id,
     }
 
-    # Try sending directly first
     try:
         sent = await context.bot.send_photo(
             chat_id=CHARA_CHANNEL_ID,
@@ -91,11 +115,8 @@ async def upload(update: Update, context: CallbackContext):
                 async with session.get(img_url) as response:
                     if response.status != 200:
                         raise Exception("Failed to fetch image.")
-
-                    image_bytes = await response.read()
-                    buffer = BytesIO(image_bytes)
+                    buffer = BytesIO(await response.read())
                     buffer.name = "waifu.jpg"
-
                     sent = await context.bot.send_photo(
                         chat_id=CHARA_CHANNEL_ID,
                         photo=InputFile(buffer),
@@ -110,81 +131,5 @@ async def upload(update: Update, context: CallbackContext):
     await collection.insert_one(waifu)
     await update.message.reply_text("✅ Waifu added successfully.")
 
-async def delete(update: Update, context: CallbackContext):
-    if str(update.effective_user.id) not in sudo_users:
-        await update.message.reply_text("Only bot owner can use this.")
-        return
-
-    args = context.args
-    if len(args) != 1:
-        await update.message.reply_text("Usage: /delete ID")
-        return
-
-    char_id = args[0]
-    char = await collection.find_one_and_delete({"id": char_id})
-    if char:
-        try:
-            await context.bot.delete_message(CHARA_CHANNEL_ID, char["message_id"])
-        except:
-            pass
-        await update.message.reply_text("✅ Deleted successfully.")
-    else:
-        await update.message.reply_text("ID not found in database.")
-
-async def update_waifu(update: Update, context: CallbackContext):
-    if str(update.effective_user.id) not in sudo_users:
-        await update.message.reply_text("Only bot owner can use this.")
-        return
-
-    args = context.args
-    if len(args) != 3:
-        await update.message.reply_text("Usage: /update id field new_value")
-        return
-
-    char_id, field, new_value = args
-    valid_fields = ["img_url", "name", "anime", "rarity"]
-    if field not in valid_fields:
-        await update.message.reply_text("Valid fields: img_url, name, anime, rarity")
-        return
-
-    char = await collection.find_one({"id": char_id})
-    if not char:
-        await update.message.reply_text("Character not found.")
-        return
-
-    if field == "rarity":
-        try:
-            new_value = rarity_map[int(new_value)]
-        except:
-            await update.message.reply_text("Invalid rarity number.")
-            return
-    elif field in ["name", "anime"]:
-        new_value = new_value.replace("-", " ").title()
-
-    await collection.find_one_and_update({"id": char_id}, {"$set": {field: new_value}})
-
-    try:
-        if field == "img_url":
-            await context.bot.delete_message(CHARA_CHANNEL_ID, char["message_id"])
-            new_msg = await context.bot.send_photo(
-                CHARA_CHANNEL_ID,
-                photo=new_value,
-                caption=f"<b>Waifu Name:</b> {char.get('name')}\n<b>Anime:</b> {char.get('anime')}\n<b>Rarity:</b> {char.get('rarity')}\n<b>ID:</b> {char_id}\nUpdated by <a href='tg://user?id={update.effective_user.id}'>{update.effective_user.first_name}</a>",
-                parse_mode="HTML",
-            )
-            await collection.find_one_and_update({"id": char_id}, {"$set": {"message_id": new_msg.message_id}})
-        else:
-            await context.bot.edit_message_caption(
-                CHARA_CHANNEL_ID,
-                char["message_id"],
-                caption=f"<b>Waifu Name:</b> {char.get('name') if field != 'name' else new_value}\n<b>Anime:</b> {char.get('anime') if field != 'anime' else new_value}\n<b>Rarity:</b> {char.get('rarity') if field != 'rarity' else new_value}\n<b>ID:</b> {char_id}\nUpdated by <a href='tg://user?id={update.effective_user.id}'>{update.effective_user.first_name}</a>",
-                parse_mode="HTML",
-            )
-        await update.message.reply_text("✅ Updated successfully.")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Failed to update caption:\n<code>{e}</code>", parse_mode="HTML")
-
-# Add handlers
+# Register command
 application.add_handler(CommandHandler("upload", upload, block=False))
-application.add_handler(CommandHandler("delete", delete, block=False))
-application.add_handler(CommandHandler("update", update_waifu, block=False))
