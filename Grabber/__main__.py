@@ -12,7 +12,7 @@ from Grabber.modules.spawn_core import (
     set_frequency,
     force_spawn
 )
-
+from Grabber.modules.grab_core import guess, fav
 from Grabber import (
     application,
     LOGGER,
@@ -165,6 +165,7 @@ application.add_handler(CommandHandler("forcewaifu", force_spawn, block=False))
 
 # Existing handlers
 from Grabber.modules.grab_core import guess, fav  # Assuming you’ve moved these
+
 
 application.add_handler(CommandHandler("grab", guess, block=False))
 application.add_handler(CommandHandler("fav", fav, block=False))
