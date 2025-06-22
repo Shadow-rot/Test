@@ -1,116 +1,85 @@
 from pyrogram import Client, filters
-from Grabber import db, collection, top_global_groups_collection, group_user_totals_collection, user_collection, user_totals_collection
-import asyncio
-from Grabber import Grabberu as app
-from Grabber import sudo_users
+from Grabber import (
+    Grabberu as app,
+    collection,
+    user_collection,
+    sudo_users,
+)
 
-DEV_LIST = [5147822244]
-
-async def give_character(receiver_id, character_id):
+# Utility to fetch character and ensure existence
+async def get_character(character_id):
     character = await collection.find_one({'id': character_id})
+    if not character:
+        raise ValueError("❌ Character not found.")
+    return character
 
-    if character:
-        try:
-            await user_collection.update_one(
-                {'id': receiver_id},
-                {'$push': {'characters': character}}
-            )
-
-            img_url = character['img_url']
-            caption = (
-                f"Successfully Given To {receiver_id}\n"
-                f"Information As Follows\n"
-                f" ✅ Rarity: {character['rarity']}\n"
-                f"🫂 Anime: {character['anime']}\n"
-                f"💕 Name: {character['name']}\n"
-                f"🍿 ID: {character['id']}"
-            )
-
-            return img_url, caption
-        except Exception as e:
-            print(f"Error updating user: {e}")
-            raise
-    else:
-        raise ValueError("Character not found.")
-
-@app.on_message(filters.command(["give"]) & filters.reply & filters.user(DEV_LIST))
+# 🧿 /give <id> — reply to user
+@app.on_message(filters.command("give") & filters.reply & filters.user(sudo_users))
 async def give_character_command(client, message):
-    if not message.reply_to_message:
-        await message.reply_text("You need to reply to a user's message to give a character!")
-        return
+    if len(message.command) < 2:
+        return await message.reply_text("❌ Usage: /give <character_id> (reply to a user)")
+
+    character_id = message.command[1]
+    receiver = message.reply_to_message.from_user
+
     try:
-        character_id = str(message.text.split()[1])
-        receiver_id = message.reply_to_message.from_user.id
+        character = await get_character(character_id)
+        await user_collection.update_one(
+            {"id": receiver.id},
+            {"$push": {"characters": character}},
+            upsert=True
+        )
 
-        result = await give_character(receiver_id, character_id)
-
-        if result:
-            img_url, caption = result
-            await message.reply_photo(photo=img_url, caption=caption)
-    except (IndexError, ValueError) as e:
-        await message.reply_text(str(e))
+        caption = (
+            f"🎁 <b>Successfully Given To:</b> <code>{receiver.id}</code>\n\n"
+            f"✅ <b>Name:</b> {character['name']}\n"
+            f"🏷 <b>Anime:</b> {character['anime']}\n"
+            f"🌟 <b>Rarity:</b> {character['rarity']}\n"
+            f"🆔 <b>ID:</b> <code>{character['id']}</code>"
+        )
+        await message.reply_photo(photo=character['img_url'], caption=caption, parse_mode="HTML")
     except Exception as e:
-        print(f"Error in give_character_command: {e}")
-        await message.reply_text("An error occurred while processing the command.")
+        await message.reply_text(f"⚠️ {str(e)}")
 
+# 🔁 /add — adds all characters not already owned
+@app.on_message(filters.command("add") & filters.user(sudo_users))
+async def add_all_characters(client, message):
+    user_id = message.from_user.id
+    user_data = await user_collection.find_one({'id': user_id}) or {}
 
-async def add_all_characters_for_user(user_id):
-    user = await user_collection.find_one({'id': user_id})
+    owned_ids = {c['id'] for c in user_data.get('characters', [])}
+    all_chars = await collection.find({}).to_list(length=None)
+    new_chars = [c for c in all_chars if c['id'] not in owned_ids]
 
-    if user:
-        all_characters_cursor = collection.find({})
-        all_characters = await all_characters_cursor.to_list(length=None)
+    if not new_chars:
+        return await message.reply_text("✅ You already have all characters.")
 
-        existing_character_ids = {character['id'] for character in user['characters']}
-        new_characters = [character for character in all_characters if character['id'] not in existing_character_ids]
+    await user_collection.update_one(
+        {'id': user_id},
+        {'$push': {'characters': {'$each': new_chars}}},
+        upsert=True
+    )
+    await message.reply_text(f"✅ {len(new_chars)} new characters added to your collection!")
 
-        if new_characters:
-            await user_collection.update_one(
-                {'id': user_id},
-                {'$push': {'characters': {'$each': new_characters}}}
-            )
+# ❌ /kill <id> — reply to user
+@app.on_message(filters.command("kill") & filters.reply & filters.user(sudo_users))
+async def kill_character_command(client, message):
+    if len(message.command) < 2:
+        return await message.reply_text("❌ Usage: /kill <character_id> (reply to a user)")
 
-            return f"Successfully added characters for user {user_id}"
+    character_id = message.command[1]
+    receiver = message.reply_to_message.from_user
+
+    try:
+        await get_character(character_id)  # ensure character exists
+        result = await user_collection.update_one(
+            {"id": receiver.id},
+            {"$pull": {"characters": {"id": character_id}}}
+        )
+
+        if result.modified_count:
+            await message.reply_text(f"❌ Character `{character_id}` removed from user `{receiver.id}`.", parse_mode="Markdown")
         else:
-            return f"No new characters to add for user {user_id}"
-    else:
-        return f"User with ID {user_id} not found."
-
-@app.on_message(filters.command(["add"]) & filters.user(DEV_LIST))
-async def add_characters_command(client, message):
-    user_id_to_add_characters_for = message.from_user.id
-    result_message = await add_all_characters_for_user(user_id_to_add_characters_for)
-    await message.reply_text(result_message)
-
-
-async def kill_character(receiver_id, character_id):
-    character = await collection.find_one({'id': character_id})
-
-    if character:
-        try:
-            await user_collection.update_one(
-                {'id': receiver_id},
-                {'$pull': {'characters': {'id': character_id}}}
-            )
-
-            return f"Successfully removed character `{character_id}` from user `{receiver_id}`"
-        except Exception as e:
-            print(f"Error updating user: {e}")
-            raise
-    else:
-        raise ValueError("Character not found.")
-
-@app.on_message(filters.command(["kill"]) & filters.reply & filters.user(DEV_LIST))
-async def remove_character_command(client, message):
-    try:
-        character_id = str(message.text.split()[1])
-        receiver_id = message.reply_to_message.from_user.id
-
-        result_message = await kill_character(receiver_id, character_id)
-
-        await message.reply_text(result_message)
-    except (IndexError, ValueError) as e:
-        await message.reply_text(str(e))
+            await message.reply_text("⚠️ Character was not in user's collection.")
     except Exception as e:
-        print(f"Error in remove_character_command: {e}")
-        await message.reply_text("An error occurred while processing the command.")
+        await message.reply_text(f"⚠️ {str(e)}")
