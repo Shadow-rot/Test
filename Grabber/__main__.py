@@ -14,6 +14,12 @@ from telegram.ext import (
     filters,
 )
 
+from Grabber.modules.spawn_core import (
+    message_counter,
+    set_frequency,
+    force_spawn,
+)
+from Grabber.modules.grab_core import guess, fav
 from Grabber import (
     application,
     LOGGER,
@@ -25,36 +31,43 @@ from Grabber import (
     Grabberu,
 )
 from Grabber.modules import ALL_MODULES
-from Grabber.modules.grab_core import guess, fav
 
-# === Shared Runtime Variables ===
+# Runtime cache/state
 locks = {}
+message_counters = {}
+spam_counters = {}
+last_characters = {}
+sent_characters = {}
+first_correct_guesses = {}
 message_counts = {}
 last_user = {}
 warned_users = {}
 
-last_characters = {}  # Chat-wise last spawned waifu
-sent_characters = {}  # Track sent waifus to avoid repeats
-first_correct_guesses = {}  # Track who grabbed first
+# Dynamic import of all modules
+for module_name in ALL_MODULES:
+    importlib.import_module("Grabber.modules." + module_name)
 
-# === Waifu Spawn Frequency Handler ===
+
+def escape_markdown(text):
+    escape_chars = r'\*_`\\~>#+-=|{}.!'
+    return re.sub(r'([%s])' % re.escape(escape_chars), r'\\\1', text)
+
+
 async def message_counter(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
-    if user is None or update.effective_chat.type != "group":
+    if user is None:
         return
 
     chat_id = update.effective_chat.id
     user_id = user.id
 
-    # Setup lock
     if chat_id not in locks:
         locks[chat_id] = asyncio.Lock()
     lock = locks[chat_id]
 
     async with lock:
-        # Get frequency
-        chat_freq_doc = await user_totals_collection.find_one({'chat_id': chat_id})
-        frequency = chat_freq_doc.get('message_frequency', 10) if chat_freq_doc else 10
+        chat_frequency = await user_totals_collection.find_one({'chat_id': chat_id})
+        message_frequency = chat_frequency.get('message_frequency', 10) if chat_frequency else 10
 
         # Anti-spam
         if chat_id in last_user and last_user[chat_id]['user_id'] == user_id:
@@ -63,115 +76,57 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
                 if user_id in warned_users and time.time() - warned_users[user_id] < 600:
                     return
                 await update.message.reply_text(
-                    f"⚠️ Stop spamming {user.first_name}, you'll be ignored for 10 minutes."
-                )
+                    f"⚠️ 𝘿𝙤𝙣'𝙩 𝙎𝙥𝙖𝙢 {user.first_name}...\n𝙔𝙤𝙪𝙧 𝙈𝙚𝙨𝙨𝙖𝙜𝙚𝙨 𝙒𝙞𝙡𝙡 𝙗𝙚 𝙞𝙜𝙣𝙤𝙧𝙚𝙙 𝙛𝙤𝙧 10 𝙈𝙞𝙣𝙪𝙩𝙚𝙨...")
                 warned_users[user_id] = time.time()
                 return
         else:
             last_user[chat_id] = {'user_id': user_id, 'count': 1}
 
-        # Count messages
         message_counts[chat_id] = message_counts.get(chat_id, 0) + 1
         LOGGER.info(f"[{chat_id}] Message count: {message_counts[chat_id]}")
 
-        if message_counts[chat_id] >= frequency:
-            await spawn_waifu(update, context)
+        if message_counts[chat_id] % message_frequency == 0:
+            await send_image(update, context)
             message_counts[chat_id] = 0
 
 
-# === Spawn a waifu image ===
-async def spawn_waifu(update: Update, context: CallbackContext) -> None:
+async def send_image(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
-    all_waifus = await collection.find({}).to_list(length=None)
+    all_characters = list(await collection.find({}).to_list(length=None))
 
     if chat_id not in sent_characters:
         sent_characters[chat_id] = []
 
-    unused_waifus = [c for c in all_waifus if c['id'] not in sent_characters[chat_id]]
-    if not unused_waifus:
+    if len(sent_characters[chat_id]) == len(all_characters):
         sent_characters[chat_id] = []
-        unused_waifus = all_waifus
 
-    character = random.choice(unused_waifus)
+    character = random.choice([c for c in all_characters if c['id'] not in sent_characters[chat_id]])
     sent_characters[chat_id].append(character['id'])
     last_characters[chat_id] = character
-    first_correct_guesses.pop(chat_id, None)
+    if chat_id in first_correct_guesses:
+        del first_correct_guesses[chat_id]
 
-    LOGGER.info(f"[{chat_id}] Spawning: {character['name']}")
+    LOGGER.info(f"[{chat_id}] Sending waifu: {character['name']}")
 
     await context.bot.send_photo(
         chat_id=chat_id,
         photo=character['img_url'],
-        caption=(
-            f"{character['rarity']} 𝙒𝙖𝙞𝙛𝙪 𝘼𝙥𝙥𝙚𝙖𝙧𝙚𝙙!\n"
-            f"Use <code>/grab {character['name']}</code> to collect her."
-        ),
-        parse_mode="HTML"
+        caption=f"""𝘼 𝙉𝙚𝙬 {character['rarity']} 𝙒𝙖𝙞𝙛𝙪 𝘼𝙥𝙥𝙚𝙖𝙧𝙚𝙙...\n/grab 𝙉𝙖𝙢𝙚 𝙖𝙣𝙙 𝙖𝙙𝙙 𝙞𝙣 𝙔𝙤𝙪𝙧 𝙝𝙖𝙧𝙚𝙢""",
+        parse_mode='Markdown'
     )
 
 
-# === Set frequency command ===
-async def set_frequency(update: Update, context: CallbackContext) -> None:
-    user = update.effective_user
-    chat = update.effective_chat
-    if not user or not chat:
-        return
-
-    member = await chat.get_member(user.id)
-    if member.status not in ['administrator', 'creator']:
-        await update.message.reply_text("Only admins can change frequency.")
-        return
-
-    if not context.args:
-        await update.message.reply_text("Usage: /setfrequency <number>")
-        return
-
-    try:
-        value = int(context.args[0])
-        if not 5 <= value <= 300:
-            await update.message.reply_text("Value must be between 5 and 300.")
-            return
-
-        await user_totals_collection.update_one(
-            {'chat_id': chat.id},
-            {'$set': {'message_frequency': value}},
-            upsert=True
-        )
-        await update.message.reply_text(f"✅ Frequency set to {value} messages.")
-    except ValueError:
-        await update.message.reply_text("Please provide a valid number.")
-
-
-# === Force spawn by admin ===
-async def force_spawn(update: Update, context: CallbackContext) -> None:
-    user = update.effective_user
-    chat = update.effective_chat
-
-    member = await chat.get_member(user.id)
-    if member.status not in ['administrator', 'creator']:
-        await update.message.reply_text("Only admins can spawn waifus.")
-        return
-
-    await spawn_waifu(update, context)
-
-
-# === Register All Modules ===
-for module_name in ALL_MODULES:
-    importlib.import_module("Grabber.modules." + module_name)
-
-
-# === Register Handlers ===
-application.add_handler(MessageHandler(filters.TEXT & filters.GROUPS, message_counter, block=False))
-application.add_handler(CommandHandler("grab", guess, block=False))
-application.add_handler(CommandHandler("fav", fav, block=False))
+# Handler registration
+application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, message_counter, block=False))
 application.add_handler(CommandHandler("setfrequency", set_frequency, block=False))
 application.add_handler(CommandHandler("forcewaifu", force_spawn, block=False))
+application.add_handler(CommandHandler("grab", guess, block=False))
+application.add_handler(CommandHandler("fav", fav, block=False))
 
 
-# === Start Bot ===
 def main() -> None:
     Grabberu.start()
-    LOGGER.info("Grabber Bot Started Successfully")
+    LOGGER.info("Bot started")
     application.run_polling(drop_pending_updates=True)
 
 
